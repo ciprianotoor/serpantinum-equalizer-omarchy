@@ -59,7 +59,9 @@ ${XDG_STATE_HOME:-~/.local/state}/omarchy/serpantinum-equalizer.json
 ```
 
 El plugin alterna entre los perfiles de salida `live_eq` y `live_eq_alt` para
-que EasyEffects vuelva a cargar el preset después de cada cambio. Se guardan en:
+que EasyEffects vuelva a cargar el preset después de cada cambio. Estos archivos
+los administra el plugin y pueden sobrescribirse al aplicar cambios; no los
+uses como perfiles manuales independientes. Se guardan en:
 
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/easyeffects/output/live_eq.json
