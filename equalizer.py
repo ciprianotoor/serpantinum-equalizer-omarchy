@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 PRESET_NAME = "live_eq"
+ALTERNATE_PRESET_NAME = "live_eq_alt"
 PRESETS = {
     "Flat": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     "Bass": [5, 7, 5, 2, 1, 0, 0, 0, 1, 2],
@@ -36,14 +37,14 @@ def state_path():
     return state_home / "omarchy" / "serpantinum-equalizer.json"
 
 
-def preset_path():
+def preset_path(name):
     data_home = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
-    return data_home / "easyeffects" / "output" / f"{PRESET_NAME}.json"
+    return data_home / "easyeffects" / "output" / f"{name}.json"
 
 
-def state_for(gains=None, preset="Flat", pending=False):
+def state_for(gains=None, preset="Flat", pending=False, profile=PRESET_NAME):
     state = {f"b{i + 1}": value for i, value in enumerate(gains or DEFAULT_GAINS)}
-    state.update({"preset": preset, "pending": pending})
+    state.update({"preset": preset, "pending": pending, "profile": profile})
     return state
 
 
@@ -83,7 +84,10 @@ def load_state():
     pending = state.get("pending", False)
     if not isinstance(pending, bool):
         raise ValueError("El estado del ecualizador contiene un indicador pending inválido.")
-    return state_for(gains, preset, pending)
+    profile = state.get("profile", PRESET_NAME)
+    if profile not in (PRESET_NAME, ALTERNATE_PRESET_NAME):
+        profile = PRESET_NAME
+    return state_for(gains, preset, pending, profile)
 
 
 def write_json_atomic(path, data):
@@ -114,7 +118,8 @@ def build_preset(state):
         bands[f"band{index}"] = {
             "frequency": FREQUENCIES[index],
             "gain": slider_to_gain.get(index, 0),
-            "mode": "Bell",
+            "type": "Bell",
+            "mode": "RLC (BT)",
             "mute": False,
             "q": 1.0,
             "solo": False,
@@ -141,7 +146,6 @@ def build_preset(state):
 
 def apply_state(state):
     state["pending"] = True
-    write_json_atomic(preset_path(), build_preset(state))
 
     executable = shutil.which("easyeffects")
     if executable is None:
@@ -149,15 +153,36 @@ def apply_state(state):
             "EasyEffects no está instalado o no está en PATH. Instálalo y vuelve a aplicar el ecualizador."
         )
     try:
-        result = subprocess.run(
-            [executable, "-l", PRESET_NAME],
+        current_result = subprocess.run(
+            [executable, "-a", "output"],
             check=False,
             capture_output=True,
             text=True,
             timeout=12,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(f"No se pudo iniciar EasyEffects: {error}") from error
+        raise RuntimeError(f"No se pudo consultar el perfil activo de EasyEffects: {error}") from error
+    if current_result.returncode != 0:
+        detail = current_result.stderr.strip() or current_result.stdout.strip()
+        raise RuntimeError(
+            "No se pudo consultar el perfil activo de EasyEffects."
+            + (f" {detail}" if detail else "")
+        )
+    current_profile = current_result.stdout.strip().splitlines()[-1:]
+    current_profile = current_profile[0].removeprefix("output: ").strip() if current_profile else ""
+    profile = ALTERNATE_PRESET_NAME if current_profile == PRESET_NAME else PRESET_NAME
+
+    write_json_atomic(preset_path(profile), build_preset(state))
+    try:
+        result = subprocess.run(
+            [executable, "-l", profile],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"No se pudo cargar el perfil en EasyEffects: {error}") from error
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(
@@ -165,6 +190,26 @@ def apply_state(state):
             + (f" {detail}" if detail else "")
         )
 
+    try:
+        loaded_result = subprocess.run(
+            [executable, "-a", "output"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"No se pudo verificar el perfil activo de EasyEffects: {error}") from error
+    loaded_profile = loaded_result.stdout.strip().splitlines()[-1:]
+    loaded_profile = loaded_profile[0].removeprefix("output: ").strip() if loaded_profile else ""
+    if loaded_result.returncode != 0 or loaded_profile != profile:
+        detail = loaded_result.stderr.strip()
+        raise RuntimeError(
+            f"EasyEffects no confirmó la carga del perfil {profile}."
+            + (f" {detail}" if detail else "")
+        )
+
+    state["profile"] = profile
     state["pending"] = False
     write_json_atomic(state_path(), state)
     return state
@@ -190,14 +235,14 @@ def main():
         if args.command == "get":
             pass
         elif args.command == "set-bands":
-            state = state_for(validate_gains(json.loads(args.gains)), "Custom", True)
+            state = state_for(validate_gains(json.loads(args.gains)), "Custom", True, state["profile"])
             write_json_atomic(state_path(), state)
         elif args.command == "apply":
             if args.gains:
-                state = state_for(validate_gains(json.loads(args.gains)), "Custom", True)
+                state = state_for(validate_gains(json.loads(args.gains)), "Custom", True, state["profile"])
             state = apply_state(state)
         elif args.command == "preset":
-            state = state_for(PRESETS[args.name], args.name, True)
+            state = state_for(PRESETS[args.name], args.name, True, state["profile"])
             write_json_atomic(state_path(), state)
             state = apply_state(state)
         print(json.dumps(state, separators=(",", ":")))
