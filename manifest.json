@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ciprianotoor.serpantinum-equalizer",
+  "name": "Serpantinum Equalizer",
+  "version": "1.0.0",
+  "author": "Illia Miroshnichenko; Omarchy adaptation by Cipriano Toor",
+  "license": "AGPL-3.0-or-later",
+  "description": "Ten-band EasyEffects equalizer with Serpantinum presets",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Equalizer",
+    "description": "Ten-band audio equalizer and presets",
+    "category": "Audio",
+    "allowMultiple": false
+  }
+}
